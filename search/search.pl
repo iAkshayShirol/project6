@@ -1,84 +1,77 @@
-% search.pl
-% No module — required by the autograder
+% search.pl — autograder-compatible, with unlock events
 
 :- use_module(library(lists)).
 
-:- initialization(main, main).
-main :- true.
-
-% ------------------------------
-% search(Actions)
-% ------------------------------
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Entry point
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 search(Actions) :-
     initial(StartRoom),
     bfs([node(state(StartRoom, []), [])], [], RevActions),
     reverse(RevActions, Actions).
 
-% ------------------------------------------------
-% BFS implementation
-% ------------------------------------------------
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% BFS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 bfs([node(state(Room, _Keys), ActionsSoFar) | _], _Visited, ActionsSoFar) :-
     treasure(Room), !.
 
-bfs([node(State, ActionsSoFar) | RestQueue], Visited, Actions) :-
-    State = state(_, _),
-    findall(
-        node(NextState, [Act | ActionsSoFar]),
-        move(State, NextState, Act),
-        Children
-    ),
+bfs([node(State, ActionsSoFar) | Rest], Visited, Actions) :-
+    findall(node(NextState, NewActions),
+        transition(State, ActionsSoFar, NextState, NewActions),
+        Children),
     add_new_states(Children, Visited, NewNodes, NewVisited),
-    append(RestQueue, NewNodes, UpdatedQueue),
-    bfs(UpdatedQueue, NewVisited, Actions).
+    append(Rest, NewNodes, Queue),
+    bfs(Queue, NewVisited, Actions).
 
 bfs([], _, _) :- fail.
 
-% ------------------------------------------------
-% Visited-state filtering
-% ------------------------------------------------
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Visited management
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-add_new_states([], Visited, [], Visited).
+add_new_states([], V, [], V).
+add_new_states([node(S,A)|R], V, [node(S,A)|NR], NV) :-
+    \+ member(S, V),
+    add_new_states(R, [S|V], NR, NV).
+add_new_states([node(S,_)|R], V, NR, NV) :-
+    member(S, V),
+    add_new_states(R, V, NR, NV).
 
-add_new_states([node(State, Acts) | Rest], Visited,
-               [node(State, Acts) | NewNodes], NewVisited) :-
-    \+ member(State, Visited),
-    add_new_states(Rest, [State | Visited], NewNodes, NewVisited).
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Transition rules (adds unlock actions)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-add_new_states([node(State, _) | Rest], Visited, NewNodes, NewVisited) :-
-    member(State, Visited),
-    add_new_states(Rest, Visited, NewNodes, NewVisited).
+transition(state(Room,Keys), ActionsSoFar, state(Next,Keys2), [move(Room,Next)|ActionsSoFar]) :-
+    door(Room, Next),
+    pick_up_key(Next, Keys, Keys2).
 
-% ------------------------------------------------
-% Movement rules
-% ------------------------------------------------
+transition(state(Room,Keys), ActionsSoFar, state(Next,Keys2), [move(Room,Next)|ActionsSoFar]) :-
+    door(Next, Room),
+    pick_up_key(Next, Keys, Keys2).
 
-move(state(Room, Keys), state(NextRoom, Keys2), move(Room, NextRoom)) :-
-    door(Room, NextRoom),
-    pick_up_key(NextRoom, Keys, Keys2).
-
-move(state(Room, Keys), state(NextRoom, Keys2), move(Room, NextRoom)) :-
-    door(NextRoom, Room),
-    pick_up_key(NextRoom, Keys, Keys2).
-
-move(state(Room, Keys), state(NextRoom, Keys2), move(Room, NextRoom)) :-
-    locked_door(Room, NextRoom, Color),
+% Locked door forward
+transition(state(Room,Keys), ActionsSoFar, state(Next,Keys2),
+           [move(Room,Next), unlock(Color)|ActionsSoFar]) :-
+    locked_door(Room, Next, Color),
     member(Color, Keys),
-    pick_up_key(NextRoom, Keys, Keys2).
+    pick_up_key(Next, Keys, Keys2).
 
-move(state(Room, Keys), state(NextRoom, Keys2), move(Room, NextRoom)) :-
-    locked_door(NextRoom, Room, Color),
+% Locked door backward
+transition(state(Room,Keys), ActionsSoFar, state(Next,Keys2),
+           [move(Room,Next), unlock(Color)|ActionsSoFar]) :-
+    locked_door(Next, Room, Color),
     member(Color, Keys),
-    pick_up_key(NextRoom, Keys, Keys2).
+    pick_up_key(Next, Keys, Keys2).
 
-% ------------------------------------------------
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Key pickup
-% ------------------------------------------------
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-pick_up_key(Room, KeysHeld, NewKeysHeld) :-
-    key(Room, Color),
+pick_up_key(Room, KeysHeld, NewKeys) :-
+    key(Room,Color),
     \+ member(Color, KeysHeld),
-    sort([Color | KeysHeld], NewKeysHeld), !.
-
+    sort([Color|KeysHeld], NewKeys), !.
 pick_up_key(_, Keys, Keys).
